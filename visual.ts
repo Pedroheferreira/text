@@ -40,7 +40,7 @@ export class Visual implements IVisual {
     private formattingSettingsService: FormattingSettingsService;
 
     private groups: FieldGroup[] = [];
-    private isExpanded: boolean = false;
+    private panelOpen: boolean = false;
     private expandedState: Map<string, boolean> = new Map();
     private selectedKeys: Set<string> = new Set();
 
@@ -136,21 +136,40 @@ export class Visual implements IVisual {
 
     private render(): void {
         this.rootEl.innerHTML = "";
-        this.rootEl.style.background = this.s.panelBg;
-        this.rootEl.appendChild(this.buildTriggerButton());
-        if (this.isExpanded) {
-            this.rootEl.appendChild(this.buildPanel());
-        }
+
+        const wrapper = document.createElement("div");
+        wrapper.className = "fs-wrapper";
+
+        const btn = this.buildTriggerButton(wrapper);
+        wrapper.appendChild(btn);
+
+        const panel = this.buildPanel();
+        if (this.panelOpen) panel.classList.add("open");
+        wrapper.appendChild(panel);
+
+        this.rootEl.appendChild(wrapper);
+
+        // Close on outside click
+        const outsideHandler = (e: MouseEvent) => {
+            if (this.panelOpen && !wrapper.contains(e.target as Node)) {
+                this.panelOpen = false;
+                panel.classList.remove("open");
+                btn.classList.remove("active");
+                (btn.querySelector(".fs-chevron") as HTMLElement)?.classList.remove("open");
+                document.removeEventListener("click", outsideHandler);
+            }
+        };
+        document.addEventListener("click", outsideHandler);
     }
 
-    private buildTriggerButton(): HTMLButtonElement {
+    private buildTriggerButton(wrapper: HTMLElement): HTMLButtonElement {
         const s = this.s;
         const btn = document.createElement("button");
-        btn.className = "fs-trigger-btn";
+        btn.className = "fs-trigger-btn" + (this.panelOpen ? " active" : "");
         btn.style.cssText = `
             background: ${s.triggerBg};
             color: ${s.triggerTextColor};
-            border-color: ${s.triggerBorderColor};
+            border-color: ${this.panelOpen ? s.checkboxColor : s.triggerBorderColor};
             border-radius: ${s.triggerBorderRadius}px;
         `;
 
@@ -167,7 +186,7 @@ export class Visual implements IVisual {
         badge.style.background = s.checkboxColor;
 
         const chevron = document.createElement("span");
-        chevron.className = "fs-chevron" + (this.isExpanded ? " open" : "");
+        chevron.className = "fs-chevron" + (this.panelOpen ? " open" : "");
         chevron.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none"
             stroke="currentColor" stroke-width="2.8" stroke-linecap="round">
             <polyline points="6 9 12 15 18 9"/></svg>`;
@@ -177,9 +196,14 @@ export class Visual implements IVisual {
         btn.appendChild(badge);
         btn.appendChild(chevron);
 
-        btn.addEventListener("click", () => {
-            this.isExpanded = !this.isExpanded;
-            this.render();
+        btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const panel = wrapper.querySelector(".fs-panel") as HTMLElement;
+            this.panelOpen = !this.panelOpen;
+            panel?.classList.toggle("open", this.panelOpen);
+            chevron.classList.toggle("open", this.panelOpen);
+            btn.classList.toggle("active", this.panelOpen);
+            btn.style.borderColor = this.panelOpen ? s.checkboxColor : s.triggerBorderColor;
         });
 
         return btn;
@@ -192,6 +216,7 @@ export class Visual implements IVisual {
         panel.className = "fs-panel";
         panel.style.background = s.panelBg;
 
+        // Header
         const header = document.createElement("div");
         header.className = "fs-header";
         header.style.background = s.panelHeaderBg;
@@ -207,9 +232,14 @@ export class Visual implements IVisual {
             stroke="currentColor" stroke-width="2.8" stroke-linecap="round">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-        closeBtn.addEventListener("click", () => {
-            this.isExpanded = false;
-            this.render();
+        closeBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.panelOpen = false;
+            panel.classList.remove("open");
+            const btn = this.rootEl.querySelector(".fs-trigger-btn") as HTMLElement;
+            btn?.classList.remove("active");
+            (btn?.querySelector(".fs-chevron") as HTMLElement)?.classList.remove("open");
+            if (btn) btn.style.borderColor = s.triggerBorderColor;
         });
 
         header.appendChild(title);
@@ -218,6 +248,7 @@ export class Visual implements IVisual {
 
         if (s.showSearch) panel.appendChild(this.buildSearch());
 
+        // Groups
         const groupsEl = document.createElement("div");
         groupsEl.className = "fs-groups";
 
@@ -232,6 +263,7 @@ export class Visual implements IVisual {
 
         panel.appendChild(groupsEl);
 
+        // Apply button
         const applyBtn = document.createElement("button");
         applyBtn.className = "fs-apply-btn";
         applyBtn.textContent = s.applyLabel;
@@ -422,7 +454,7 @@ export class Visual implements IVisual {
             ? this.selectionManager.clear()
             : this.selectionManager.select(allSelected, false);
 
-        this.isExpanded = false;
+        this.panelOpen = false;
         this.render();
     }
 
@@ -439,8 +471,14 @@ export class Visual implements IVisual {
                 width: 100%; height: 100%;
                 font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
                 font-size: 13px;
-                display: flex; flex-direction: column;
-                overflow: hidden;
+                overflow: visible;
+            }
+
+            .fs-wrapper {
+                position: relative;
+                display: inline-flex;
+                flex-direction: column;
+                align-items: flex-start;
             }
 
             .fs-trigger-btn {
@@ -449,9 +487,9 @@ export class Visual implements IVisual {
                 border: 1.5px solid #c8ccd4; border-radius: 8px;
                 cursor: pointer; font-family: inherit; font-size: 13px; font-weight: 500;
                 box-shadow: 0 1px 4px rgba(0,0,0,0.07);
-                transition: box-shadow 0.15s;
+                transition: box-shadow 0.15s, border-color 0.15s;
                 user-select: none; white-space: nowrap;
-                align-self: flex-start; margin: 8px; flex-shrink: 0;
+                margin: 8px;
             }
             .fs-trigger-btn:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.11); }
 
@@ -472,8 +510,26 @@ export class Visual implements IVisual {
             .fs-badge.visible { display: inline-block; }
 
             .fs-panel {
-                flex: 1; display: flex; flex-direction: column;
-                overflow: hidden; border-top: 1px solid #f0f2f5;
+                position: absolute;
+                top: calc(100% - 4px);
+                left: 8px;
+                z-index: 9999;
+                border: 1px solid #e0e3ea;
+                border-radius: 10px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.13);
+                width: 250px;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+                opacity: 0;
+                transform: translateY(-6px);
+                pointer-events: none;
+                transition: opacity 0.2s ease, transform 0.2s ease;
+            }
+            .fs-panel.open {
+                opacity: 1;
+                transform: translateY(0);
+                pointer-events: all;
             }
 
             .fs-header {
@@ -500,7 +556,7 @@ export class Visual implements IVisual {
             }
             .fs-search-input::placeholder { color: #c0c4cc; }
 
-            .fs-groups { flex: 1; overflow-y: auto; padding: 4px 0; }
+            .fs-groups { overflow-y: auto; max-height: 300px; padding: 4px 0; }
             .fs-groups::-webkit-scrollbar { width: 4px; }
             .fs-groups::-webkit-scrollbar-thumb { background: #e0e2e6; border-radius: 4px; }
 
@@ -558,4 +614,3 @@ export class Visual implements IVisual {
         document.head.appendChild(style);
     }
 }
-
