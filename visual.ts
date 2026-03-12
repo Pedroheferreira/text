@@ -44,6 +44,9 @@ export class Visual implements IVisual {
     private expandedState: Map<string, boolean> = new Map();
     private selectedKeys: Set<string> = new Set();
 
+    // Keeps track of outside-click handler so we can remove it
+    private outsideHandler: ((e: MouseEvent) => void) | null = null;
+
     constructor(options: VisualConstructorOptions) {
         this.host = options.host;
         this.selectionManager = this.host.createSelectionManager();
@@ -135,6 +138,12 @@ export class Visual implements IVisual {
     }
 
     private render(): void {
+        // Clean up previous outside-click listener
+        if (this.outsideHandler) {
+            document.removeEventListener("click", this.outsideHandler);
+            this.outsideHandler = null;
+        }
+
         this.rootEl.innerHTML = "";
 
         const wrapper = document.createElement("div");
@@ -149,17 +158,21 @@ export class Visual implements IVisual {
 
         this.rootEl.appendChild(wrapper);
 
-        // Close on outside click
-        const outsideHandler = (e: MouseEvent) => {
+        // Outside click closes panel
+        this.outsideHandler = (e: MouseEvent) => {
             if (this.panelOpen && !wrapper.contains(e.target as Node)) {
-                this.panelOpen = false;
-                panel.classList.remove("open");
-                btn.classList.remove("active");
-                (btn.querySelector(".fs-chevron") as HTMLElement)?.classList.remove("open");
-                document.removeEventListener("click", outsideHandler);
+                this.closePanel(btn, panel);
             }
         };
-        document.addEventListener("click", outsideHandler);
+        document.addEventListener("click", this.outsideHandler);
+    }
+
+    private closePanel(btn: HTMLButtonElement, panel: HTMLElement): void {
+        this.panelOpen = false;
+        panel.classList.remove("open");
+        btn.classList.remove("active");
+        (btn.querySelector(".fs-chevron") as HTMLElement)?.classList.remove("open");
+        btn.style.borderColor = this.s.triggerBorderColor;
     }
 
     private buildTriggerButton(wrapper: HTMLElement): HTMLButtonElement {
@@ -234,12 +247,8 @@ export class Visual implements IVisual {
             <line x1="6" y1="6" x2="18" y2="18"/></svg>`;
         closeBtn.addEventListener("click", (e) => {
             e.stopPropagation();
-            this.panelOpen = false;
-            panel.classList.remove("open");
-            const btn = this.rootEl.querySelector(".fs-trigger-btn") as HTMLElement;
-            btn?.classList.remove("active");
-            (btn?.querySelector(".fs-chevron") as HTMLElement)?.classList.remove("open");
-            if (btn) btn.style.borderColor = s.triggerBorderColor;
+            const btn = this.rootEl.querySelector(".fs-trigger-btn") as HTMLButtonElement;
+            this.closePanel(btn, panel);
         });
 
         header.appendChild(title);
@@ -248,7 +257,7 @@ export class Visual implements IVisual {
 
         if (s.showSearch) panel.appendChild(this.buildSearch());
 
-        // Groups
+        // Groups — scrollable area with fixed max-height
         const groupsEl = document.createElement("div");
         groupsEl.className = "fs-groups";
 
@@ -459,7 +468,7 @@ export class Visual implements IVisual {
     }
 
     private injectStyles(): void {
-        const ID = "fs-styles-v3";
+        const ID = "fs-styles-v4";
         if (document.getElementById(ID)) return;
 
         const style = document.createElement("style");
@@ -472,15 +481,15 @@ export class Visual implements IVisual {
                 font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
                 font-size: 13px;
                 overflow: visible;
+                position: relative;
             }
 
             .fs-wrapper {
                 position: relative;
-                display: inline-flex;
-                flex-direction: column;
-                align-items: flex-start;
+                display: inline-block;
             }
 
+            /* ── Trigger button ── */
             .fs-trigger-btn {
                 display: inline-flex; align-items: center; gap: 8px;
                 padding: 8px 14px 8px 12px;
@@ -491,7 +500,7 @@ export class Visual implements IVisual {
                 user-select: none; white-space: nowrap;
                 margin: 8px;
             }
-            .fs-trigger-btn:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.11); }
+            .fs-trigger-btn:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.13); }
 
             .fs-trigger-icon { display: flex; flex-direction: column; gap: 3.5px; flex-shrink: 0; }
             .fs-trigger-icon span {
@@ -509,22 +518,27 @@ export class Visual implements IVisual {
             }
             .fs-badge.visible { display: inline-block; }
 
+            /* ── Dropdown panel ── */
+            /* Uses fixed position so it escapes the Power BI clip boundary */
             .fs-panel {
                 position: absolute;
-                top: calc(100% - 4px);
+                top: calc(100% - 2px);
                 left: 8px;
-                z-index: 9999;
+                z-index: 999999;
                 border: 1px solid #e0e3ea;
                 border-radius: 10px;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.13);
-                width: 250px;
+                box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+                width: 260px;
+                background: #fff;
                 display: flex;
                 flex-direction: column;
                 overflow: hidden;
+                /* Hidden by default */
                 opacity: 0;
                 transform: translateY(-6px);
                 pointer-events: none;
-                transition: opacity 0.2s ease, transform 0.2s ease;
+                transition: opacity 0.18s ease, transform 0.18s ease;
+                /* Total panel height is controlled by max-height of .fs-groups below */
             }
             .fs-panel.open {
                 opacity: 1;
@@ -532,6 +546,7 @@ export class Visual implements IVisual {
                 pointer-events: all;
             }
 
+            /* ── Header ── */
             .fs-header {
                 display: flex; align-items: center; justify-content: space-between;
                 padding: 10px 14px 8px; border-bottom: 1px solid #f0f2f5; flex-shrink: 0;
@@ -544,6 +559,7 @@ export class Visual implements IVisual {
             }
             .fs-header-close:hover { color: #555; background: #f3f4f6; }
 
+            /* ── Search ── */
             .fs-search-wrapper {
                 display: flex; align-items: center; margin: 8px 10px 4px;
                 background: #f5f6f8; border: 1px solid #e8eaed;
@@ -556,9 +572,16 @@ export class Visual implements IVisual {
             }
             .fs-search-input::placeholder { color: #c0c4cc; }
 
-            .fs-groups { overflow-y: auto; max-height: 300px; padding: 4px 0; }
+            /* ── Groups — SHORT with scroll ── */
+            .fs-groups {
+                overflow-y: auto;
+                /* ~4 items visible, then scroll */
+                max-height: 180px;
+                padding: 4px 0;
+            }
             .fs-groups::-webkit-scrollbar { width: 4px; }
             .fs-groups::-webkit-scrollbar-thumb { background: #e0e2e6; border-radius: 4px; }
+            .fs-groups::-webkit-scrollbar-track { background: transparent; }
 
             .fs-empty {
                 padding: 16px; font-size: 12px; color: #aaa;
@@ -582,7 +605,7 @@ export class Visual implements IVisual {
             .fs-item-list {
                 display: flex; flex-direction: column; gap: 1px;
                 padding: 0 8px 6px; border-bottom: 1px solid #f3f4f6;
-                overflow: hidden; max-height: 800px;
+                overflow: hidden; max-height: 600px;
                 transition: max-height 0.2s ease, padding 0.2s ease;
             }
             .fs-item-list.collapsed { max-height: 0; padding-bottom: 0; }
@@ -602,6 +625,7 @@ export class Visual implements IVisual {
             }
             .fs-item.selected .fs-item-label { font-weight: 500; }
 
+            /* ── Apply button ── */
             .fs-apply-btn {
                 margin: 8px 10px 10px; border: none; font-size: 12.5px; font-weight: 600;
                 padding: 9px 0; cursor: pointer; letter-spacing: 0.03em;
